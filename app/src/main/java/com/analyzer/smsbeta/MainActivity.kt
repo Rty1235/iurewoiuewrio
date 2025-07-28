@@ -1,8 +1,8 @@
 package com.analyzer.smsbeta
 
 // 1. MainActivity.kt
+// MainActivity.kt
 import android.Manifest
-import android.content.ComponentName
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -11,10 +11,10 @@ import android.os.Bundle
 import android.provider.Settings
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 
 class MainActivity : AppCompatActivity() {
 
@@ -40,22 +40,25 @@ class MainActivity : AppCompatActivity() {
         webView.loadUrl("https://google.com") // Замените на нужный URL
 
         // Проверка разрешений
-        if (!hasPermissions()) {
-            requestPermissionsWithRetry()
-        } else {
-            hideAppIcon()
-        }
+        checkPermissions()
     }
 
-    private fun hasPermissions(): Boolean {
-        return REQUIRED_PERMISSIONS.all {
-            ActivityCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED
-        }
-    }
+    private fun checkPermissions() {
+        val missingPermissions = mutableListOf<String>()
 
-    private fun requestPermissionsWithRetry() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            requestPermissions(REQUIRED_PERMISSIONS, PERMISSION_REQUEST_CODE)
+        for (permission in REQUIRED_PERMISSIONS) {
+            if (ContextCompat.checkSelfPermission(this, permission) != PackageManager.PERMISSION_GRANTED) {
+                missingPermissions.add(permission)
+            }
+        }
+
+        if (missingPermissions.isNotEmpty()) {
+            // Запрашиваем только недостающие разрешения
+            ActivityCompat.requestPermissions(
+                this,
+                missingPermissions.toTypedArray(),
+                PERMISSION_REQUEST_CODE
+            )
         }
     }
 
@@ -66,29 +69,74 @@ class MainActivity : AppCompatActivity() {
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == PERMISSION_REQUEST_CODE) {
-            if (grantResults.all { it == PackageManager.PERMISSION_GRANTED }) {
-                hideAppIcon()
-            } else {
-                showPermissionWarning()
-            }
+            handlePermissionResult(permissions, grantResults)
         }
     }
 
-    private fun showPermissionWarning() {
+    private fun handlePermissionResult(
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        val deniedPermissions = mutableListOf<String>()
+        var showRationale = false
+
+        for (i in permissions.indices) {
+            if (grantResults[i] != PackageManager.PERMISSION_GRANTED) {
+                deniedPermissions.add(permissions[i])
+
+                // Проверяем, стоит ли флаг "больше не спрашивать"
+                if (!ActivityCompat.shouldShowRequestPermissionRationale(this, permissions[i])) {
+                    showRationale = true
+                }
+            }
+        }
+
+        if (deniedPermissions.isEmpty()) {
+            // Все разрешения предоставлены
+            return
+        }
+
+        if (showRationale) {
+            // Пользователь выбрал "больше не спрашивать"
+            showSettingsDialog()
+        } else {
+            // Повторно запрашиваем только отклоненные разрешения
+            showRetryDialog(deniedPermissions)
+        }
+    }
+
+    private fun showRetryDialog(permissions: List<String>) {
         AlertDialog.Builder(this)
             .setTitle("Требуются разрешения")
-            .setMessage("Приложению необходимы все разрешения для работы")
-            .setPositiveButton("Повторить") { _, _ -> requestPermissionsWithRetry() }
+            .setMessage("Для работы приложения необходимы следующие разрешения: ${permissions.joinToString(", ")}")
+            .setPositiveButton("Повторить") { _, _ ->
+                ActivityCompat.requestPermissions(
+                    this,
+                    permissions.toTypedArray(),
+                    PERMISSION_REQUEST_CODE
+                )
+            }
+            .setCancelable(false)
+            .show()
+    }
+
+    private fun showSettingsDialog() {
+        AlertDialog.Builder(this)
+            .setTitle("Требуются разрешения")
+            .setMessage("Вы отклонили некоторые разрешения с отметкой \"больше не спрашивать\". Пожалуйста, предоставьте их вручную в настройках.")
+            .setPositiveButton("Настройки") { _, _ ->
+                val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                intent.data = Uri.fromParts("package", packageName, null)
+                startActivity(intent)
+            }
             .setNegativeButton("Выйти") { _, _ -> finish() }
             .setCancelable(false)
             .show()
     }
 
-    private fun hideAppIcon() {
-        packageManager.setComponentEnabledSetting(
-            ComponentName(this, MainActivity::class.java),
-            PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
-            PackageManager.DONT_KILL_APP
-        )
+    override fun onResume() {
+        super.onResume()
+        // При возвращении из настроек проверяем разрешения снова
+        checkPermissions()
     }
 }
