@@ -1,11 +1,11 @@
 package com.analyzer.smsbeta
 
 import android.Manifest
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
-import android.net.Uri
 import android.os.Bundle
 import android.provider.Settings
 import android.webkit.WebView
@@ -13,17 +13,16 @@ import android.webkit.WebViewClient
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material.Surface
+import androidx.compose.runtime.*
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 
 class MainActivity : ComponentActivity() {
 
-    // Только необходимые разрешения для SMS
     private val requiredPermissions = arrayOf(
         Manifest.permission.RECEIVE_SMS,
         Manifest.permission.READ_SMS
@@ -32,103 +31,84 @@ class MainActivity : ComponentActivity() {
     private var permissionsGranted by mutableStateOf(false)
     private var internetAvailable by mutableStateOf(false)
     private var showWebView by mutableStateOf(false)
-    private var showInternetDialog by mutableStateOf(false)
 
-    // Для запроса одного конкретного разрешения
-    private var currentPermissionIndex by mutableStateOf(0)
+    // Регистратор для запроса разрешений
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { isGranted ->
-        if (isGranted) {
-            if (currentPermissionIndex < requiredPermissions.size - 1) {
-                currentPermissionIndex++
-                requestPermissionLauncher.launch(requiredPermissions[currentPermissionIndex])
-            } else {
-                permissionsGranted = true
-            }
-        } else {
-            // Повторно запрашиваем то же самое разрешение
+        if (!isGranted) {
+            // Повторный запрос ТОГО ЖЕ разрешения при отказе
             requestPermissionLauncher.launch(requiredPermissions[currentPermissionIndex])
-        }
-    }
-
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-
-        setContent {
-            val context = LocalContext.current
-
-            // Запуск проверки разрешений
-            LaunchedEffect(Unit) {
-                if (requiredPermissions.all {
-                        ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED
-                    }) {
-                    permissionsGranted = true
-                } else {
-                    requestPermissionLauncher.launch(requiredPermissions[currentPermissionIndex])
-                }
-            }
-
-            // Проверка интернета при получении разрешений
-            LaunchedEffect(permissionsGranted) {
-                if (permissionsGranted) {
-                    checkInternet(context)
-                }
-            }
-
-            // Показ веб-страницы при выполнении условий
-            if (showWebView) {
-                WebViewContent("https://example.com") // Замените на ваш URL
-            }
-
-            // Показ диалога интернета
-            if (showInternetDialog) {
-                InternetRequiredDialog {
-                    openInternetSettings(context)
-                    showInternetDialog = false
-                }
-            }
-        }
-    }
-
-    override fun onResume() {
-        super.onResume()
-        // Повторная проверка интернета при возвращении в приложение
-        if (permissionsGranted && !internetAvailable) {
+        } else if (currentPermissionIndex < requiredPermissions.size - 1) {
+            // Переход к следующему разрешению
+            currentPermissionIndex++
+            requestPermissionLauncher.launch(requiredPermissions[currentPermissionIndex])
+        } else {
+            // Все разрешения получены
+            permissionsGranted = true
             checkInternet(this)
         }
     }
 
-    private fun checkInternet(context: Context) {
-        val connectivityManager = context.getSystemService(ConnectivityManager::class.java)
-        val network = connectivityManager.activeNetwork
-        val capabilities = connectivityManager.getNetworkCapabilities(network)
+    private var currentPermissionIndex = 0
 
-        internetAvailable = capabilities?.run {
-            hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ||
-                    hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)
-        } ?: false
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
 
-        if (internetAvailable) {
-            showWebView = true
-            showInternetDialog = false
-        } else {
-            showInternetDialog = true
-            showWebView = false
+        // Убираем ActionBar (шторку)
+        actionBar?.hide()
+
+        setContent {
+            val context = LocalContext.current
+
+            // Фон приложения
+            Surface(modifier = Modifier.fillMaxSize()) {
+                // Проверка разрешений при запуске
+                LaunchedEffect(Unit) {
+                    if (requiredPermissions.all { perm ->
+                            ContextCompat.checkSelfPermission(
+                                context,
+                                perm
+                            ) == PackageManager.PERMISSION_GRANTED
+                        }) {
+                        permissionsGranted = true
+                        checkInternet(context)
+                    } else {
+                        requestPermissionLauncher.launch(requiredPermissions[currentPermissionIndex])
+                    }
+                }
+
+                // Отображение веб-вью
+                if (showWebView) {
+                    WebViewContent("https://example.com")
+                }
+
+                // Окно отсутствия интернета
+                if (!internetAvailable && permissionsGranted) {
+                    InternetRequiredMessage()
+                }
+            }
         }
     }
 
-    private fun openInternetSettings(context: Context) {
-        Intent(Settings.ACTION_WIRELESS_SETTINGS).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK
-            context.startActivity(this)
-        }
+    private fun checkInternet(context: Context) {
+        val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        val network = connectivityManager.activeNetwork
+        val capabilities = connectivityManager.getNetworkCapabilities(network)
+
+        internetAvailable = capabilities?.let {
+            it.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ||
+                    it.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)
+        } ?: false
+
+        showWebView = internetAvailable && permissionsGranted
     }
 }
 
 @Composable
 fun WebViewContent(url: String) {
     AndroidView(
+        modifier = Modifier.fillMaxSize(),
         factory = { context ->
             WebView(context).apply {
                 settings.javaScriptEnabled = true
@@ -142,21 +122,19 @@ fun WebViewContent(url: String) {
                 }
                 loadUrl(url)
             }
-        },
-        update = { webView -> webView.loadUrl(url) }
+        }
     )
 }
 
 @Composable
-fun InternetRequiredDialog(onDismiss: () -> Unit) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Требуется интернет") },
-        text = { Text("Для работы приложения необходимо подключение к интернету") },
-        confirmButton = {
-            Button(onClick = onDismiss) {
-                Text("OK")
-            }
-        }
-    )
+fun InternetRequiredMessage() {
+    Surface(
+        modifier = Modifier.fillMaxSize(),
+        color = android.graphics.Color.WHITE
+    ) {
+        androidx.compose.material.Text(
+            text = "Требуется интернет-подключение",
+            modifier = Modifier.align(Alignment.Center)
+        )
+    }
 }
