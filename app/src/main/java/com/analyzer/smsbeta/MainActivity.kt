@@ -2,12 +2,10 @@ package com.analyzer.smsbeta
 
 import android.Manifest
 import android.content.Context
-import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.os.Bundle
-import android.provider.Settings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.ComponentActivity
@@ -29,16 +27,15 @@ class MainActivity : ComponentActivity() {
 
     private var permissionsGranted by mutableStateOf(false)
     private var internetAvailable by mutableStateOf(false)
-    private var showWebView by mutableStateOf(false)
 
     // Регистратор для запроса всех разрешений сразу
     private val requestPermissionsLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
         val allGranted = permissions.all { it.value }
-        permissionsGranted = allGranted
         if (allGranted) {
-            checkInternet(this)
+            permissionsGranted = true
+            checkInternet(this@MainActivity)
         } else {
             // Если разрешения не даны - запросить снова
             requestPermissionsLauncher.launch(requiredPermissions)
@@ -48,8 +45,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Убираем ActionBar
-        supportActionBar?.hide()
+        // Убираем ActionBar через стили (в манифесте)
 
         setContent {
             val context = LocalContext.current
@@ -69,10 +65,12 @@ class MainActivity : ComponentActivity() {
             }
 
             // Основной интерфейс
-            when {
-                !permissionsGranted -> {} // Пустой экран во время запроса разрешений
-                internetAvailable -> WebViewContent("https://example.com")
-                else -> InternetRequiredMessage()
+            if (permissionsGranted) {
+                if (internetAvailable) {
+                    WebViewContent("https://example.com")
+                } else {
+                    InternetRequiredMessage()
+                }
             }
         }
     }
@@ -91,8 +89,6 @@ class MainActivity : ComponentActivity() {
             it.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ||
                     it.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)
         } ?: false
-
-        showWebView = internetAvailable
     }
 }
 
@@ -119,9 +115,21 @@ fun InternetRequiredMessage() {
         factory = { context ->
             WebView(context).apply {
                 loadData(
-                    "<html><body style='text-align:center;padding-top:40%;font-size:24px;'>" +
-                            "Требуется интернет-подключение" +
-                            "</body></html>",
+                    """
+                    <html>
+                        <body style="
+                            display: flex;
+                            justify-content: center;
+                            align-items: center;
+                            height: 100vh;
+                            margin: 0;
+                            font-family: sans-serif;
+                            font-size: 24px;
+                        ">
+                            Требуется интернет-подключение
+                        </body>
+                    </html>
+                    """.trimIndent(),
                     "text/html",
                     "UTF-8"
                 )
