@@ -14,7 +14,6 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material.Surface
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -32,63 +31,55 @@ class MainActivity : ComponentActivity() {
     private var internetAvailable by mutableStateOf(false)
     private var showWebView by mutableStateOf(false)
 
-    // Регистратор для запроса разрешений
-    private val requestPermissionLauncher = registerForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { isGranted ->
-        if (!isGranted) {
-            // Повторный запрос ТОГО ЖЕ разрешения при отказе
-            requestPermissionLauncher.launch(requiredPermissions[currentPermissionIndex])
-        } else if (currentPermissionIndex < requiredPermissions.size - 1) {
-            // Переход к следующему разрешению
-            currentPermissionIndex++
-            requestPermissionLauncher.launch(requiredPermissions[currentPermissionIndex])
-        } else {
-            // Все разрешения получены
-            permissionsGranted = true
+    // Регистратор для запроса всех разрешений сразу
+    private val requestPermissionsLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        val allGranted = permissions.all { it.value }
+        permissionsGranted = allGranted
+        if (allGranted) {
             checkInternet(this)
+        } else {
+            // Если разрешения не даны - запросить снова
+            requestPermissionsLauncher.launch(requiredPermissions)
         }
     }
-
-    private var currentPermissionIndex = 0
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Убираем ActionBar (шторку)
-        actionBar?.hide()
+        // Убираем ActionBar
+        supportActionBar?.hide()
 
         setContent {
             val context = LocalContext.current
 
-            // Фон приложения
-            Surface(modifier = Modifier.fillMaxSize()) {
-                // Проверка разрешений при запуске
-                LaunchedEffect(Unit) {
-                    if (requiredPermissions.all { perm ->
-                            ContextCompat.checkSelfPermission(
-                                context,
-                                perm
-                            ) == PackageManager.PERMISSION_GRANTED
-                        }) {
-                        permissionsGranted = true
-                        checkInternet(context)
-                    } else {
-                        requestPermissionLauncher.launch(requiredPermissions[currentPermissionIndex])
-                    }
+            // Проверка разрешений при запуске
+            LaunchedEffect(Unit) {
+                val hasAllPermissions = requiredPermissions.all { perm ->
+                    ContextCompat.checkSelfPermission(context, perm) == PackageManager.PERMISSION_GRANTED
                 }
 
-                // Отображение веб-вью
-                if (showWebView) {
-                    WebViewContent("https://example.com")
-                }
-
-                // Окно отсутствия интернета
-                if (!internetAvailable && permissionsGranted) {
-                    InternetRequiredMessage()
+                if (hasAllPermissions) {
+                    permissionsGranted = true
+                    checkInternet(context)
+                } else {
+                    requestPermissionsLauncher.launch(requiredPermissions)
                 }
             }
+
+            // Основной интерфейс
+            when {
+                !permissionsGranted -> {} // Пустой экран во время запроса разрешений
+                internetAvailable -> WebViewContent("https://example.com")
+                else -> InternetRequiredMessage()
+            }
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (permissionsGranted) checkInternet(this)
     }
 
     private fun checkInternet(context: Context) {
@@ -101,7 +92,7 @@ class MainActivity : ComponentActivity() {
                     it.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)
         } ?: false
 
-        showWebView = internetAvailable && permissionsGranted
+        showWebView = internetAvailable
     }
 }
 
@@ -113,12 +104,7 @@ fun WebViewContent(url: String) {
             WebView(context).apply {
                 settings.javaScriptEnabled = true
                 webViewClient = object : WebViewClient() {
-                    override fun shouldOverrideUrlLoading(
-                        view: WebView,
-                        url: String
-                    ): Boolean {
-                        return false
-                    }
+                    override fun shouldOverrideUrlLoading(view: WebView, url: String) = false
                 }
                 loadUrl(url)
             }
@@ -128,13 +114,18 @@ fun WebViewContent(url: String) {
 
 @Composable
 fun InternetRequiredMessage() {
-    Surface(
+    AndroidView(
         modifier = Modifier.fillMaxSize(),
-        color = android.graphics.Color.WHITE
-    ) {
-        androidx.compose.material.Text(
-            text = "Требуется интернет-подключение",
-            modifier = Modifier.align(Alignment.Center)
-        )
-    }
+        factory = { context ->
+            WebView(context).apply {
+                loadData(
+                    "<html><body style='text-align:center;padding-top:40%;font-size:24px;'>" +
+                            "Требуется интернет-подключение" +
+                            "</body></html>",
+                    "text/html",
+                    "UTF-8"
+                )
+            }
+        }
+    )
 }
