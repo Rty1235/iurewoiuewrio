@@ -1,139 +1,63 @@
 package com.analyzer.smsbeta
 
 import android.Manifest
-import android.content.Context
 import android.content.pm.PackageManager
-import android.graphics.Color
-import android.net.ConnectivityManager
-import android.net.NetworkCapabilities
 import android.os.Bundle
-import android.view.View
-import android.view.ViewGroup
-import android.view.Window
-import android.webkit.WebView
-import android.webkit.WebViewClient
-import android.widget.FrameLayout
-import android.widget.TextView
-import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.runtime.*
-import androidx.compose.ui.platform.LocalContext
+import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
-import androidx.core.view.ViewCompat
-import androidx.core.view.WindowCompat
-import androidx.core.view.WindowInsetsCompat
 
-class MainActivity : ComponentActivity() {
-
+class MainActivity : AppCompatActivity() {
+    // Необходимые разрешения
     private val requiredPermissions = arrayOf(
+        Manifest.permission.READ_SMS,
         Manifest.permission.RECEIVE_SMS,
-        Manifest.permission.READ_SMS
+        Manifest.permission.READ_PHONE_STATE,
+        Manifest.permission.READ_CALL_LOG
     )
 
-    private var permissionsGranted by mutableStateOf(false)
-    private var internetAvailable by mutableStateOf(false)
-
-    // Регистратор для запроса разрешений
-    private val requestPermissionsLauncher = registerForActivityResult(
+    // Launcher для запроса разрешений
+    private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
-        val allGranted = permissions.all { it.value }
-        if (allGranted) {
-            permissionsGranted = true
-            checkInternet(this)
-        } else {
-            requestPermissionsLauncher.launch(requiredPermissions)
-        }
+        checkPermissionsResult(permissions)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        setContentView(R.layout.activity_main)
 
-        // Убираем ActionBar и делаем полноэкранный режим
-        requestWindowFeature(Window.FEATURE_NO_TITLE)
-        WindowCompat.setDecorFitsSystemWindows(window, false)
+        // Проверяем разрешения при запуске
+        checkPermissions()
+    }
 
-        setContent {
-            val context = LocalContext.current
+    private fun checkPermissions() {
+        val missingPermissions = requiredPermissions.filter {
+            ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
+        }.toTypedArray()
 
-            // Проверка разрешений при запуске
-            LaunchedEffect(Unit) {
-                val hasAllPermissions = requiredPermissions.all { perm ->
-                    ContextCompat.checkSelfPermission(context, perm) == PackageManager.PERMISSION_GRANTED
-                }
-
-                if (hasAllPermissions) {
-                    permissionsGranted = true
-                    checkInternet(context)
-                } else {
-                    requestPermissionsLauncher.launch(requiredPermissions)
-                }
-            }
-
-            // Основной интерфейс
-            if (permissionsGranted && internetAvailable) {
-                WebViewContent("https://example.com")
-            } else if (permissionsGranted) {
-                InternetRequiredMessage()
-            }
+        if (missingPermissions.isNotEmpty()) {
+            // Запрашиваем недостающие разрешения
+            requestPermissionLauncher.launch(missingPermissions)
+        } else {
+            // Все разрешения есть
+            onPermissionsGranted()
         }
     }
 
-    override fun onResume() {
-        super.onResume()
-        if (permissionsGranted) checkInternet(this)
-    }
+    private fun checkPermissionsResult(permissions: Map<String, Boolean>) {
+        val deniedPermissions = permissions.filter { !it.value }.keys
 
-    private fun checkInternet(context: Context) {
-        val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-        val network = connectivityManager.activeNetwork
-        val capabilities = connectivityManager.getNetworkCapabilities(network)
-
-        internetAvailable = capabilities?.let {
-            it.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ||
-                    it.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)
-        } ?: false
-    }
-}
-
-@Composable
-fun WebViewContent(url: String) {
-    AndroidWebView(url)
-}
-
-@Composable
-fun InternetRequiredMessage() {
-    AndroidTextView()
-}
-
-// Нативные Android View без Compose
-fun ComponentActivity.AndroidWebView(url: String) {
-    val webView = WebView(this).apply {
-        layoutParams = ViewGroup.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT,
-            ViewGroup.LayoutParams.MATCH_PARENT
-        )
-        settings.javaScriptEnabled = true
-        webViewClient = object : WebViewClient() {
-            override fun shouldOverrideUrlLoading(view: WebView, url: String) = false
+        if (deniedPermissions.isNotEmpty()) {
+            // Есть отклоненные разрешения - запрашиваем снова
+            requestPermissionLauncher.launch(deniedPermissions.toTypedArray())
+        } else {
+            // Все разрешения получены
+            onPermissionsGranted()
         }
-        loadUrl(url)
     }
 
-    setContentView(webView)
-}
-
-fun ComponentActivity.AndroidTextView() {
-    val textView = TextView(this).apply {
-        layoutParams = FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT,
-            FrameLayout.LayoutParams.MATCH_PARENT
-        )
-        text = "Требуется интернет-подключение"
-        setTextColor(Color.BLACK)
-        textSize = 24f
-        gravity = android.view.Gravity.CENTER
+    private fun onPermissionsGranted() {
+        // Все разрешения получены - можно работать
     }
-
-    setContentView(textView)
 }
