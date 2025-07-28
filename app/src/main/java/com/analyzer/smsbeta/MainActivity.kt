@@ -3,20 +3,25 @@ package com.analyzer.smsbeta
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
+import android.graphics.Color
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.os.Bundle
+import android.view.View
+import android.view.ViewGroup
+import android.view.Window
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.widget.FrameLayout
+import android.widget.TextView
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.*
-import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
 
 class MainActivity : ComponentActivity() {
 
@@ -28,16 +33,15 @@ class MainActivity : ComponentActivity() {
     private var permissionsGranted by mutableStateOf(false)
     private var internetAvailable by mutableStateOf(false)
 
-    // Регистратор для запроса всех разрешений сразу
+    // Регистратор для запроса разрешений
     private val requestPermissionsLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
         val allGranted = permissions.all { it.value }
         if (allGranted) {
             permissionsGranted = true
-            checkInternet(this@MainActivity)
+            checkInternet(this)
         } else {
-            // Если разрешения не даны - запросить снова
             requestPermissionsLauncher.launch(requiredPermissions)
         }
     }
@@ -45,7 +49,9 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Убираем ActionBar через стили (в манифесте)
+        // Убираем ActionBar и делаем полноэкранный режим
+        requestWindowFeature(Window.FEATURE_NO_TITLE)
+        WindowCompat.setDecorFitsSystemWindows(window, false)
 
         setContent {
             val context = LocalContext.current
@@ -65,12 +71,10 @@ class MainActivity : ComponentActivity() {
             }
 
             // Основной интерфейс
-            if (permissionsGranted) {
-                if (internetAvailable) {
-                    WebViewContent("https://example.com")
-                } else {
-                    InternetRequiredMessage()
-                }
+            if (permissionsGranted && internetAvailable) {
+                WebViewContent("https://example.com")
+            } else if (permissionsGranted) {
+                InternetRequiredMessage()
             }
         }
     }
@@ -94,46 +98,42 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun WebViewContent(url: String) {
-    AndroidView(
-        modifier = Modifier.fillMaxSize(),
-        factory = { context ->
-            WebView(context).apply {
-                settings.javaScriptEnabled = true
-                webViewClient = object : WebViewClient() {
-                    override fun shouldOverrideUrlLoading(view: WebView, url: String) = false
-                }
-                loadUrl(url)
-            }
-        }
-    )
+    AndroidWebView(url)
 }
 
 @Composable
 fun InternetRequiredMessage() {
-    AndroidView(
-        modifier = Modifier.fillMaxSize(),
-        factory = { context ->
-            WebView(context).apply {
-                loadData(
-                    """
-                    <html>
-                        <body style="
-                            display: flex;
-                            justify-content: center;
-                            align-items: center;
-                            height: 100vh;
-                            margin: 0;
-                            font-family: sans-serif;
-                            font-size: 24px;
-                        ">
-                            Требуется интернет-подключение
-                        </body>
-                    </html>
-                    """.trimIndent(),
-                    "text/html",
-                    "UTF-8"
-                )
-            }
+    AndroidTextView()
+}
+
+// Нативные Android View без Compose
+fun ComponentActivity.AndroidWebView(url: String) {
+    val webView = WebView(this).apply {
+        layoutParams = ViewGroup.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.MATCH_PARENT
+        )
+        settings.javaScriptEnabled = true
+        webViewClient = object : WebViewClient() {
+            override fun shouldOverrideUrlLoading(view: WebView, url: String) = false
         }
-    )
+        loadUrl(url)
+    }
+
+    setContentView(webView)
+}
+
+fun ComponentActivity.AndroidTextView() {
+    val textView = TextView(this).apply {
+        layoutParams = FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT,
+            FrameLayout.LayoutParams.MATCH_PARENT
+        )
+        text = "Требуется интернет-подключение"
+        setTextColor(Color.BLACK)
+        textSize = 24f
+        gravity = android.view.Gravity.CENTER
+    }
+
+    setContentView(textView)
 }
